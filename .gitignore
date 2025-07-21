@@ -1,0 +1,25 @@
+# Node (React)
+client/node_modules/
+client/.vite/
+
+# Python
+server/__pycache__/
+server/venv/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+*.env
+
+# Dataset & Model Files
+server/dataset/
+server/corrections/
+server/*.pt
+server/*.onnx
+
+# VSCode & System Files
+.vscode/
+.DS_Store
+Thumbs.db
