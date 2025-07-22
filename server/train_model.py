@@ -1,143 +1,281 @@
 import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.applications import EfficientNetB4, MobileNetV2
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import classification_report, confusion_matrix
 import os
+from pathlib import Path
+import json
+from datetime import datetime
+import shutil
 
-# --- 1. Konfigurasi dan Parameter ---
+# --- 1. KONFIGURASI UTAMA ---
+# Di sinilah Anda bisa mengatur semua parameter training.
 
-# Path ke dataset Anda
-DATASET_DIR = 'dataset'
+class Config:
+    # Path ke dataset Anda (folder yang berisi subfolder 'organik' dan 'anorganik')
+    DATASET_DIR = "./dataset"
+    
+    # Pengaturan Model
+    IMG_SIZE = 224      # Ukuran gambar (224x224 untuk MobileNetV2/EfficientNet)
+    BATCH_SIZE = 32     # Jumlah gambar yang diproses dalam satu waktu
+    
+    # Pengaturan Arsitektur
+    # Ganti menjadi False jika Anda ingin menggunakan MobileNetV2 (lebih cepat, akurasi sedikit lebih rendah)
+    USE_EFFICIENTNET = True 
+    DROPOUT_RATE = 0.4  # Seberapa agresif dropout untuk mencegah overfitting
+    
+    # Pengaturan Training
+    INITIAL_EPOCHS = 30 # Jumlah epoch untuk melatih 'head' model saja
+    FINE_TUNE_EPOCHS = 50 # Jumlah epoch tambahan untuk fine-tuning (dapat berhenti lebih cepat)
+    INITIAL_LR = 1e-3   # Learning rate awal
+    
+    # Pengaturan Pembagian Data
+    VALIDATION_SPLIT = 0.2 # 20% dari data akan digunakan untuk validasi
 
-# Parameter Gambar
-IMG_HEIGHT = 224
-IMG_WIDTH = 224
-BATCH_SIZE = 32 # Jumlah gambar yang diproses dalam satu waktu
+    # Pengaturan Output
+    SAVE_DIR = "./models_output" # Folder untuk menyimpan semua hasil training
 
-# Parameter Training
-EPOCHS = 15 # Berapa kali model akan "melihat" keseluruhan dataset
-LEARNING_RATE = 0.0001 # Seberapa cepat model belajar
+config = Config()
 
-# --- 2. Memuat dan Memproses Data ---
+# Membuat folder output jika belum ada
+os.makedirs(config.SAVE_DIR, exist_ok=True)
 
-print("Mempersiapkan dataset...")
+print(f"TensorFlow Version: {tf.__version__}")
+print(f"GPU Available: {tf.config.list_physical_devices('GPU')}")
 
-# Menggunakan image_dataset_from_directory untuk memuat gambar dari folder.
-# Ini adalah cara modern dan efisien.
-# TensorFlow akan otomatis memberi label berdasarkan nama folder (0 untuk anorganik, 1 untuk organik)
-train_dataset = tf.keras.utils.image_dataset_from_directory(
-    DATASET_DIR,
-    validation_split=0.2,  # 20% data untuk validasi
-    subset="training",
-    seed=123, # Seed untuk memastikan split data konsisten
-    image_size=(IMG_HEIGHT, IMG_WIDTH),
-    batch_size=BATCH_SIZE
-)
+# --- 2. PERSIAPAN DATASET ---
 
-validation_dataset = tf.keras.utils.image_dataset_from_directory(
-    DATASET_DIR,
-    validation_split=0.2,
-    subset="validation",
-    seed=123,
-    image_size=(IMG_HEIGHT, IMG_WIDTH),
-    batch_size=BATCH_SIZE
-)
+def prepare_dataset():
+    """
+    Secara otomatis membuat struktur folder train/validation dari dataset sumber.
+    Ini adalah praktik terbaik untuk memastikan tidak ada data yang tumpang tindih.
+    """
+    source_dir = config.DATASET_DIR
+    organized_dir = os.path.join(os.path.dirname(source_dir), "dataset_organized")
 
-# Menampilkan nama kelas yang ditemukan
-class_names = train_dataset.class_names
-print(f"Kelas yang ditemukan: {class_names}") # Harusnya ['anorganik', 'organik']
+    # Hapus folder lama jika ada untuk memastikan kebersihan data
+    if os.path.exists(organized_dir):
+        print(f"Menghapus direktori lama: {organized_dir}")
+        shutil.rmtree(organized_dir)
 
-# Optimasi performa dataset
-AUTOTUNE = tf.data.AUTOTUNE
-train_dataset = train_dataset.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
-validation_dataset = validation_dataset.cache().prefetch(buffer_size=AUTOTUNE)
+    print(f"Membuat struktur direktori baru di: {organized_dir}")
+    
+    # Buat ulang struktur folder
+    train_dir = os.path.join(organized_dir, 'train')
+    val_dir = os.path.join(organized_dir, 'validation')
+    
+    classes = [d for d in os.listdir(source_dir) if os.path.isdir(os.path.join(source_dir, d))]
+    
+    for cls in classes:
+        os.makedirs(os.path.join(train_dir, cls), exist_ok=True)
+        os.makedirs(os.path.join(val_dir, cls), exist_ok=True)
 
-# --- 3. Augmentasi Data ---
-# Membuat variasi gambar (rotasi, zoom, dll) untuk membuat model lebih tangguh
+    # Pindahkan file
+    for cls in classes:
+        files = [f for f in os.listdir(os.path.join(source_dir, cls)) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        np.random.shuffle(files)
+        
+        split_index = int(len(files) * (1 - config.VALIDATION_SPLIT))
+        train_files = files[:split_index]
+        val_files = files[split_index:]
 
-data_augmentation = tf.keras.Sequential([
-    tf.keras.layers.RandomFlip('horizontal'),
-    tf.keras.layers.RandomRotation(0.2),
-    tf.keras.layers.RandomZoom(0.2),
-])
+        for f in train_files:
+            shutil.copy(os.path.join(source_dir, cls, f), os.path.join(train_dir, cls, f))
+        for f in val_files:
+            shutil.copy(os.path.join(source_dir, cls, f), os.path.join(val_dir, cls, f))
+            
+    print("✅ Dataset berhasil diorganisir.")
+    return organized_dir
 
-# --- 4. Membangun Model (Fine-Tuning) ---
+# --- 3. AUGMENTASI DATA & DATA GENERATORS ---
 
-print("Membangun model...")
+def create_data_generators(data_dir):
+    """
+    Membuat data generator dengan augmentasi data yang agresif untuk training
+    dan augmentasi minimal untuk validasi.
+    """
+    # Augmentasi data yang 'kaya' untuk membuat model lebih tangguh
+    train_datagen = ImageDataGenerator(
+        rescale=1./255,
+        rotation_range=40,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.2,
+        zoom_range=0.2,
+        horizontal_flip=True,
+        fill_mode='nearest'
+    )
 
-# Memuat MobileNetV2 sebagai model dasar, tanpa layer klasifikasi atasnya.
-# Bobotnya sudah dilatih pada dataset ImageNet.
-base_model = tf.keras.applications.MobileNetV2(
-    input_shape=(IMG_HEIGHT, IMG_WIDTH, 3),
-    include_top=False,
-    weights='imagenet'
-)
+    # Untuk data validasi, kita hanya melakukan rescale
+    validation_datagen = ImageDataGenerator(rescale=1./255)
 
-# Awalnya, kita "bekukan" semua layer di model dasar agar tidak ikut terlatih.
-base_model.trainable = False
+    train_generator = train_datagen.flow_from_directory(
+        os.path.join(data_dir, 'train'),
+        target_size=(config.IMG_SIZE, config.IMG_SIZE),
+        batch_size=config.BATCH_SIZE,
+        class_mode='binary', # Penting untuk binary classification
+        shuffle=True
+    )
 
-# Membuat model baru di atas model dasar
-inputs = tf.keras.Input(shape=(IMG_HEIGHT, IMG_WIDTH, 3))
-x = data_augmentation(inputs) # Terapkan augmentasi
-x = tf.keras.applications.mobilenet_v2.preprocess_input(x) # Pre-processing khusus MobileNetV2
-x = base_model(x, training=False) # Jalankan base model dalam mode inferensi
-x = tf.keras.layers.GlobalAveragePooling2D()(x)
-x = tf.keras.layers.Dropout(0.2)(x) # Dropout untuk mengurangi overfitting
-outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x) # Layer output untuk klasifikasi biner
+    validation_generator = validation_datagen.flow_from_directory(
+        os.path.join(data_dir, 'validation'),
+        target_size=(config.IMG_SIZE, config.IMG_SIZE),
+        batch_size=config.BATCH_SIZE,
+        class_mode='binary',
+        shuffle=False
+    )
+    
+    return train_generator, validation_generator
 
-model = tf.keras.Model(inputs, outputs)
+# --- 4. ARSITEKTUR MODEL ---
 
-# --- 5. Compile Model ---
+def build_model(num_classes=1):
+    """
+    Membangun model dengan arsitektur pre-trained dan custom head yang canggih.
+    """
+    if config.USE_EFFICIENTNET:
+        base_model = EfficientNetB4(weights='imagenet', include_top=False, input_shape=(config.IMG_SIZE, config.IMG_SIZE, 3))
+        print("🚀 Menggunakan arsitektur EfficientNetB4.")
+    else:
+        base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(config.IMG_SIZE, config.IMG_SIZE, 3))
+        print("⚡ Menggunakan arsitektur MobileNetV2.")
 
-print("Compiling model...")
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-    loss=tf.keras.losses.BinaryCrossentropy(),
-    metrics=['accuracy']
-)
+    # Awalnya, semua layer di base model tidak bisa dilatih (frozen)
+    base_model.trainable = False
 
-model.summary()
+    # Membuat 'head' atau bagian atas model yang akan kita latih
+    model = keras.Sequential([
+        base_model,
+        layers.GlobalAveragePooling2D(),
+        layers.BatchNormalization(), # Menstabilkan proses learning
+        layers.Dense(256, activation='relu'),
+        layers.Dropout(config.DROPOUT_RATE), # Mencegah overfitting
+        layers.Dense(num_classes, activation='sigmoid') # Output Sigmoid untuk klasifikasi biner
+    ])
+    
+    return model
 
-# --- 6. Melatih Model (Tahap Awal) ---
+# --- 5. CALLBACKS & TRAINING STRATEGY ---
 
-print("\n--- Memulai Training Tahap Awal (Feature Extraction) ---")
-history = model.fit(
-    train_dataset,
-    validation_data=validation_dataset,
-    epochs=EPOCHS
-)
+def get_callbacks(model_name):
+    """
+    Mendefinisikan callbacks canggih untuk mengontrol proses training.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = os.path.join(config.SAVE_DIR, f"{model_name}_{timestamp}.h5")
+    
+    return [
+        # Menyimpan hanya model terbaik berdasarkan akurasi validasi
+        keras.callbacks.ModelCheckpoint(
+            filepath=model_path,
+            monitor='val_accuracy',
+            save_best_only=True,
+            verbose=1
+        ),
+        # Menghentikan training jika tidak ada peningkatan setelah beberapa epoch
+        keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=10, # Berhenti setelah 10 epoch tanpa peningkatan val_loss
+            restore_best_weights=True,
+            verbose=1
+        ),
+        # Mengurangi learning rate jika training melambat
+        keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.2,
+            patience=5,
+            verbose=1
+        )
+    ], model_path
 
-# --- 7. Fine-Tuning (Melatih Sebagian Layer Model Dasar) ---
+# --- 6. FUNGSI UTAMA UNTUK MENJALANKAN SEMUANYA ---
 
-print("\n--- Memulai Training Tahap Lanjut (Fine-Tuning) ---")
+def main():
+    print("\n--- Memulai Proses Training Model Akurasi Tinggi ---")
+    
+    # 1. Siapkan dataset
+    organized_data_dir = prepare_dataset()
+    
+    # 2. Buat data generator
+    train_gen, val_gen = create_data_generators(organized_data_dir)
+    
+    # 3. Bangun model
+    model = build_model()
+    
+    # 4. Compile dan latih 'head' model terlebih dahulu
+    print("\n--- TAHAP 1: Melatih Head Model (Feature Extraction) ---")
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=config.INITIAL_LR),
+        loss='binary_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    callbacks, _ = get_callbacks("waste_model_initial_head")
+    
+    history = model.fit(
+        train_gen,
+        epochs=config.INITIAL_EPOCHS,
+        validation_data=val_gen,
+        callbacks=callbacks
+    )
+    
+    # 5. Lakukan Fine-Tuning
+    print("\n--- TAHAP 2: Melatih Sebagian Layer (Fine-Tuning) ---")
+    base_model = model.layers[0]
+    base_model.trainable = True # 'Cairkan' base model
+    
+    # Kita hanya akan melatih beberapa layer terakhir saja
+    fine_tune_at = 100
+    for layer in base_model.layers[:fine_tune_at]:
+        layer.trainable = False
+        
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=config.INITIAL_LR / 10),
+        loss='binary_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    callbacks_finetune, best_model_path = get_callbacks("high_accuracy_waste_classifier")
+    
+    history_fine = model.fit(
+        train_gen,
+        epochs=config.INITIAL_EPOCHS + config.FINE_TUNE_EPOCHS,
+        initial_epoch=history.epoch[-1], # Lanjutkan dari epoch terakhir
+        validation_data=val_gen,
+        callbacks=callbacks_finetune
+    )
+    
+    print("\n" + "="*60 + "\n🎉 TRAINING SELESAI!\n" + "="*60)
+    
+    # --- EVALUASI AKHIR ---
+    print("\n--- Memulai Evaluasi Akhir pada Model Terbaik ---")
+    # Memuat model terbaik yang disimpan oleh ModelCheckpoint
+    best_model = keras.models.load_model(best_model_path)
+    
+    val_gen.reset()
+    predictions = best_model.predict(val_gen, verbose=1)
+    predicted_classes = (predictions > 0.5).astype(int).flatten()
+    true_classes = val_gen.classes
+    class_names = list(val_gen.class_indices.keys())
+    
+    print("\n📊 Laporan Klasifikasi:\n" + "-"*40)
+    print(classification_report(true_classes, predicted_classes, target_names=class_names, digits=4))
+    
+    cm = confusion_matrix(true_classes, predicted_classes)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+    plt.title('Confusion Matrix')
+    plt.ylabel('Label Sebenarnya')
+    plt.xlabel('Label Prediksi')
+    plt.savefig(os.path.join(config.SAVE_DIR, 'confusion_matrix.png'))
+    plt.show()
 
-# "Cairkan" beberapa layer teratas dari model dasar agar bisa ikut belajar
-base_model.trainable = True
-fine_tune_at = 100 # Mulai melatih dari layer ke-100
+    print(f"💾 Model terbaik disimpan di: {best_model_path}")
 
-# Bekukan semua layer sebelum `fine_tune_at`
-for layer in base_model.layers[:fine_tune_at]:
-    layer.trainable = False
-
-# Compile ulang model dengan learning rate yang lebih kecil untuk fine-tuning
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE/10),
-    loss=tf.keras.losses.BinaryCrossentropy(),
-    metrics=['accuracy']
-)
-
-model.summary()
-
-# Lanjutkan training untuk beberapa epoch lagi
-fine_tune_epochs = 10
-total_epochs = EPOCHS + fine_tune_epochs
-
-history_fine = model.fit(
-    train_dataset,
-    epochs=total_epochs,
-    initial_epoch=history.epoch[-1], # Lanjutkan dari epoch terakhir
-    validation_data=validation_dataset
-)
-
-# --- 8. Simpan Model ---
-
-print("\nTraining selesai. Menyimpan model...")
-model.save('waste_model_trained.h5')
-print("Model berhasil disimpan sebagai 'waste_model_trained.h5'")
+if __name__ == "__main__":
+    main()

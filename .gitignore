@@ -18,6 +18,10 @@ server/dataset/
 server/corrections/
 server/*.pt
 server/*.onnx
+server/dataset_organized
+server/logs
+server/models_output/
+server/models/
 
 # VSCode & System Files
 .vscode/
