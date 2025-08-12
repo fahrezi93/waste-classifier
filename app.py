@@ -21,35 +21,39 @@ ALLOWED_ORIGINS = [
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
 # --- Konfigurasi ---
+# Model URLs dari Google Drive
+MODEL_URLS = {
+    'waste_model.h5': 'https://drive.google.com/uc?export=download&id=1-GxeQlOLMCVp9d9Qj3Cg2K-vRz2eoN-E',
+    'waste_model_trained.h5': 'https://drive.google.com/uc?export=download&id=1-8kMqXxfQgMsxJVvOXN2CM53_gTYwNHX',
+    'waste_model_initial_head.h5': 'https://drive.google.com/uc?export=download&id=1-3zVJDDnFLReUBEp9IB2qbvRQcybXQrN'
+}
+
 # Daftar model untuk dicoba, dalam urutan prioritas
 MODELS = [
-    'waste_model_final.h5',  # Model yang akan digunakan
-    './waste_model_final.h5',
-    '/app/waste_model_final.h5'
     'waste_model.h5',
     'waste_model_trained.h5',
+    'waste_model_initial_head.h5'
 ]
-MODEL_URL = os.environ.get('MODEL_URL', '')  # URL untuk download model
 CORRECTIONS_DIR = 'corrections' # Folder untuk menyimpan gambar koreksi
 
 model = None
 CLASS_NAMES = ['Anorganik', 'Organik']
 
 def download_model():
-    """Download model dari cloud storage jika belum ada."""
-    if MODEL_URL:
-        print(f"Downloading model from {MODEL_URL}...")
-        import requests
-        try:
-            target_path = MODELS[0]  # Download ke model prioritas tertinggi
-            response = requests.get(MODEL_URL)
-            with open(target_path, 'wb') as f:
-                f.write(response.content)
-            print("Model downloaded successfully")
-            return True
-        except Exception as e:
-            print(f"Error downloading model: {e}")
-    return False
+    """Download model dari Google Drive."""
+    import requests
+    
+    for model_name, url in MODEL_URLS.items():
+        if not os.path.exists(model_name):
+            print(f"Downloading {model_name} from Google Drive...")
+            try:
+                response = requests.get(url)
+                with open(model_name, 'wb') as f:
+                    f.write(response.content)
+                print(f"Model {model_name} downloaded successfully")
+            except Exception as e:
+                print(f"Error downloading {model_name}: {e}")
+    return True
 
 def load_model():
     """Memuat model Keras dari file .h5."""
