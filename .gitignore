@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+
+# ML Models (akan didownload saat deployment)
+*.h5
+high_accuracy_waste_classifier_resumed.h5
+waste_model.h5
+
+# Corrections folder (user data)
+corrections/*
+!corrections/organik/
+!corrections/anorganik/
+corrections/organik/*
+corrections/anorganik/*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+.DS_Store
+Thumbs.db
