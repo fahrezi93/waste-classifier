@@ -26,10 +26,8 @@ wheels/
 venv/
 ENV/
 
-# ML Models (akan didownload saat deployment)
-*.h5
-high_accuracy_waste_classifier_resumed.h5
-waste_model.h5
+# ML Models sudah di-track oleh Git LFS
+# *.h5 # commented out to allow Git LFS tracking
 
 # Corrections folder (user data)
 corrections/*
