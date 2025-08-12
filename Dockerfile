@@ -9,13 +9,17 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements first for better cache
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install dependencies in specific order
+RUN pip install --no-cache-dir Werkzeug==2.0.3 && \
+    pip install --no-cache-dir Flask==2.0.1 && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
 
 # Environment variables
-ENV PORT=5000
+ENV PORT=8080
 
 # Command to run the application
-CMD gunicorn app:app --bind 0.0.0.0:$PORT
+CMD exec gunicorn --bind :$PORT app:app --workers 1 --threads 8 --timeout 0
