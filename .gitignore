@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Python
 __pycache__/
 *.py[cod]
@@ -47,5 +48,34 @@ corrections/anorganik/*
 .idea/
 
 # Misc
+=======
+# Node (React)
+client/node_modules/
+client/.vite/
+
+# Python
+server/__pycache__/
+server/venv/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+*.env
+
+# Dataset & Model Files
+server/dataset/
+server/corrections/
+server/*.pt
+server/*.onnx
+server/dataset_organized
+server/logs
+server/models_output/
+server/models/
+
+# VSCode & System Files
+.vscode/
+>>>>>>> 028f5e96342eb96095c785de15e62b703573792a
 .DS_Store
 Thumbs.db
