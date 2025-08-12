@@ -21,7 +21,13 @@ ALLOWED_ORIGINS = [
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
 # --- Konfigurasi ---
-MODEL_PATH = 'waste_model.h5'  # Model lokal
+# Daftar model untuk dicoba, dalam urutan prioritas
+MODELS = [
+    'high_accuracy_waste_classifier_resumed.h5',
+    'waste_model.h5',
+    'waste_model_trained.h5',
+    'waste_model_initial_head.h5'
+]
 MODEL_URL = os.environ.get('MODEL_URL', '')  # URL untuk download model
 CORRECTIONS_DIR = 'corrections' # Folder untuk menyimpan gambar koreksi
 
@@ -30,49 +36,49 @@ CLASS_NAMES = ['Anorganik', 'Organik']
 
 def download_model():
     """Download model dari cloud storage jika belum ada."""
-    if not os.path.exists(MODEL_PATH) and MODEL_URL:
+    if MODEL_URL:
         print(f"Downloading model from {MODEL_URL}...")
         import requests
         try:
+            target_path = MODELS[0]  # Download ke model prioritas tertinggi
             response = requests.get(MODEL_URL)
-            with open(MODEL_PATH, 'wb') as f:
+            with open(target_path, 'wb') as f:
                 f.write(response.content)
             print("Model downloaded successfully")
+            return True
         except Exception as e:
             print(f"Error downloading model: {e}")
-            return False
-    return True
+    return False
 
 def load_model():
     """Memuat model Keras dari file .h5."""
     global model
-    try:
-        # Download model jika perlu
-        if not download_model():
-            raise Exception("Failed to download model")
-            
-        print("Memuat model...")
-        model = tf.keras.models.load_model(MODEL_PATH)
-        print(f"Model '{MODEL_PATH}' berhasil dimuat.")
-            
-        # Compile model
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
-            loss='binary_crossentropy',
-            metrics=['accuracy']
-        )
-        return
-        
-    except Exception as e1:
-        print(f"Error saat memuat model utama: {e1}")
+    
+    # Coba download dulu jika ada URL
+    download_model()
+    
+    # Coba load dari daftar model yang tersedia
+    for model_path in MODELS:
         try:
-            print("Mencoba memuat model alternatif...")
-            model = tf.keras.models.load_model('waste_model.h5')
-            print("Model alternatif 'waste_model.h5' berhasil dimuat.")
-            return
-        except Exception as e2:
-            print(f"Gagal memuat kedua model: {e2}")
-            raise e2
+            print(f"Mencoba memuat model dari {model_path}...")
+            if os.path.exists(model_path):
+                model = tf.keras.models.load_model(model_path)
+                print(f"Model '{model_path}' berhasil dimuat.")
+                
+                # Compile model
+                model.compile(
+                    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+                    loss='binary_crossentropy', 
+                    metrics=['accuracy']
+                )
+                return
+            else:
+                print(f"File tidak ditemukan: {model_path}")
+        except Exception as e:
+            print(f"Error saat memuat {model_path}: {e}")
+            continue
+    
+    raise Exception("FATAL ERROR: Tidak ada model yang berhasil dimuat")
 
 def preprocess_image(image_bytes, target_size=(224, 224)):
     """Fungsi untuk memproses gambar sebelum dimasukkan ke model."""
