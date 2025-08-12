@@ -26,6 +26,8 @@ MODELS = [
     'waste_model_final.h5',  # Model yang akan digunakan
     './waste_model_final.h5',
     '/app/waste_model_final.h5'
+    'waste_model.h5',
+    'waste_model_trained.h5',
 ]
 MODEL_URL = os.environ.get('MODEL_URL', '')  # URL untuk download model
 CORRECTIONS_DIR = 'corrections' # Folder untuk menyimpan gambar koreksi
@@ -56,12 +58,21 @@ def load_model():
     # Coba download dulu jika ada URL
     download_model()
     
+    # Debug info
+    print("Current directory:", os.getcwd())
+    print("Files in current directory:", os.listdir('.'))
+    
     # Coba load dari daftar model yang tersedia
     for model_path in MODELS:
         try:
-            print(f"Mencoba memuat model dari {model_path}...")
+            print(f"\nMencoba memuat model dari {model_path}...")
             if os.path.exists(model_path):
-                model = tf.keras.models.load_model(model_path)
+                print(f"File exists. Size: {os.path.getsize(model_path)} bytes")
+                with open(model_path, 'rb') as f:
+                    header = f.read(10)
+                print(f"File header (first 10 bytes): {header}")
+                
+                model = tf.keras.models.load_model(model_path, compile=False)
                 print(f"Model '{model_path}' berhasil dimuat.")
                 
                 # Compile model
@@ -73,8 +84,10 @@ def load_model():
                 return
             else:
                 print(f"File tidak ditemukan: {model_path}")
+                print("Full path:", os.path.abspath(model_path))
         except Exception as e:
             print(f"Error saat memuat {model_path}: {e}")
+            print("Full error:", str(e))
             continue
     
     raise Exception("FATAL ERROR: Tidak ada model yang berhasil dimuat")
