@@ -23,12 +23,9 @@ CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 # --- Konfigurasi ---
 # Daftar model untuk dicoba, dalam urutan prioritas
 MODELS = [
-    './waste_model.h5',
-    './waste_model_trained.h5',
-    '/app/waste_model.h5',
-    '/app/waste_model_trained.h5',
-    'server/waste_model.h5',
-    'server/waste_model_trained.h5'
+    'waste_model_final.h5',  # Model yang akan digunakan
+    './waste_model_final.h5',
+    '/app/waste_model_final.h5'
 ]
 MODEL_URL = os.environ.get('MODEL_URL', '')  # URL untuk download model
 CORRECTIONS_DIR = 'corrections' # Folder untuk menyimpan gambar koreksi
