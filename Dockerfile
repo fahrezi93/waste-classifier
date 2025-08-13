@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir Werkzeug==2.0.3 && \
 # Copy the rest of the application
 COPY . .
 
+# Pull Git LFS files
+RUN git lfs pull
+
 # Environment variables
 ENV PORT=8080
 

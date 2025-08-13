@@ -21,13 +21,6 @@ ALLOWED_ORIGINS = [
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
 # --- Konfigurasi ---
-# Model URLs dari Google Drive
-MODEL_URLS = {
-    'waste_model.h5': 'https://drive.google.com/uc?export=download&id=1-GxeQlOLMCVp9d9Qj3Cg2K-vRz2eoN-E',
-    'waste_model_trained.h5': 'https://drive.google.com/uc?export=download&id=1-8kMqXxfQgMsxJVvOXN2CM53_gTYwNHX',
-    'waste_model_initial_head.h5': 'https://drive.google.com/uc?export=download&id=1-3zVJDDnFLReUBEp9IB2qbvRQcybXQrN'
-}
-
 # Daftar model untuk dicoba, dalam urutan prioritas
 MODELS = [
     'waste_model.h5',
@@ -39,48 +32,9 @@ CORRECTIONS_DIR = 'corrections' # Folder untuk menyimpan gambar koreksi
 model = None
 CLASS_NAMES = ['Anorganik', 'Organik']
 
-def download_model():
-    """Download model dari Google Drive jika file tidak ada atau hanya pointer Git LFS."""
-    import requests
-    
-    POINTER_FILE_THRESHOLD_BYTES = 2000  # 2 KB, ambang batas untuk pointer
-
-    for model_name, url in MODEL_URLS.items():
-        should_download = False
-        if not os.path.exists(model_name):
-            should_download = True
-            print(f"File model '{model_name}' tidak ditemukan.")
-        else:
-            file_size = os.path.getsize(model_name)
-            if file_size < POINTER_FILE_THRESHOLD_BYTES:
-                should_download = True
-                print(f"File model '{model_name}' ada tapi terlalu kecil ({file_size} bytes). Kemungkinan ini adalah pointer Git LFS.")
-            else:
-                print(f"File model '{model_name}' sudah ada dengan ukuran {file_size} bytes.")
-
-        if should_download:
-            print(f"Mengunduh {model_name} dari Google Drive...")
-            try:
-                # Gunakan session untuk penanganan koneksi yang lebih baik
-                with requests.Session() as s:
-                    response = s.get(url, stream=True)
-                    response.raise_for_status()  # Cek jika ada error HTTP
-
-                    with open(model_name, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-
-                print(f"Model {model_name} berhasil diunduh. Ukuran baru: {os.path.getsize(model_name)} bytes.")
-            except requests.exceptions.RequestException as e:
-                print(f"Error saat mengunduh {model_name}: {e}")
-    return True
-
 def load_model():
     """Memuat model Keras dari file .h5."""
     global model
-    
-    # Coba download dulu jika ada URL
-    download_model()
     
     # Debug info
     print("Current directory:", os.getcwd())
