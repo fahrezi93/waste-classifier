@@ -40,19 +40,39 @@ model = None
 CLASS_NAMES = ['Anorganik', 'Organik']
 
 def download_model():
-    """Download model dari Google Drive."""
+    """Download model dari Google Drive jika file tidak ada atau hanya pointer Git LFS."""
     import requests
     
+    POINTER_FILE_THRESHOLD_BYTES = 2000  # 2 KB, ambang batas untuk pointer
+
     for model_name, url in MODEL_URLS.items():
+        should_download = False
         if not os.path.exists(model_name):
-            print(f"Downloading {model_name} from Google Drive...")
+            should_download = True
+            print(f"File model '{model_name}' tidak ditemukan.")
+        else:
+            file_size = os.path.getsize(model_name)
+            if file_size < POINTER_FILE_THRESHOLD_BYTES:
+                should_download = True
+                print(f"File model '{model_name}' ada tapi terlalu kecil ({file_size} bytes). Kemungkinan ini adalah pointer Git LFS.")
+            else:
+                print(f"File model '{model_name}' sudah ada dengan ukuran {file_size} bytes.")
+
+        if should_download:
+            print(f"Mengunduh {model_name} dari Google Drive...")
             try:
-                response = requests.get(url)
-                with open(model_name, 'wb') as f:
-                    f.write(response.content)
-                print(f"Model {model_name} downloaded successfully")
-            except Exception as e:
-                print(f"Error downloading {model_name}: {e}")
+                # Gunakan session untuk penanganan koneksi yang lebih baik
+                with requests.Session() as s:
+                    response = s.get(url, stream=True)
+                    response.raise_for_status()  # Cek jika ada error HTTP
+
+                    with open(model_name, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+
+                print(f"Model {model_name} berhasil diunduh. Ukuran baru: {os.path.getsize(model_name)} bytes.")
+            except requests.exceptions.RequestException as e:
+                print(f"Error saat mengunduh {model_name}: {e}")
     return True
 
 def load_model():
